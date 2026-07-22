@@ -359,11 +359,20 @@ def create_vector_index(clients, collection_id, region):
     for attempt in range(12):
         try:
             client.indices.create(index=INDEX_NAME, body=body)
-            return
+            break
         except Exception:
             if attempt == 11:
                 raise
             time.sleep(10)
+
+    # A successful create() here is visible to this client immediately, but
+    # Bedrock's control plane checks the index through a separate path that
+    # lags behind -- calling create_knowledge_base right away reliably fails
+    # with "no such index" even though the index exists. There's no
+    # reliable signal to poll for this propagation, so a fixed wait is the
+    # documented workaround (see AWS's own Bedrock KB + AOSS sample code).
+    print("[6/9] Waiting ~60s for the index to propagate before the Knowledge Base can see it...")
+    time.sleep(60)
 
 
 def create_knowledge_base(clients, role_arn, collection_arn, region):
@@ -380,7 +389,7 @@ def create_knowledge_base(clients, role_arn, collection_arn, region):
         print(f"[7/9] Knowledge Base {KB_NAME} already exists ({kb_id}).")
     else:
         print(f"[7/9] Creating Knowledge Base {KB_NAME}...")
-        response = bedrock_agent.create_knowledge_base(
+        create_kwargs = dict(
             name=KB_NAME,
             roleArn=role_arn,
             knowledgeBaseConfiguration={
@@ -405,7 +414,27 @@ def create_knowledge_base(clients, role_arn, collection_arn, region):
                 },
             },
         )
-        kb_id = response["knowledgeBase"]["knowledgeBaseId"]
+
+        # "no such index" ValidationExceptions are the AOSS-index-propagation
+        # race described in create_vector_index -- retry with backoff instead
+        # of surfacing an error for something that resolves itself within a
+        # minute or two.
+        last_error = None
+        kb_id = None
+        for attempt in range(6):
+            try:
+                response = bedrock_agent.create_knowledge_base(**create_kwargs)
+                kb_id = response["knowledgeBase"]["knowledgeBaseId"]
+                break
+            except ClientError as error:
+                message = error.response.get("Error", {}).get("Message", "")
+                if "no such index" not in message.lower():
+                    raise
+                last_error = error
+                print(f"[7/9] Index not yet visible to Bedrock, retrying in 20s ({attempt + 1}/6)...")
+                time.sleep(20)
+        if kb_id is None:
+            raise last_error
 
     print("[7/9] Waiting for Knowledge Base to become ACTIVE...")
     while True:
