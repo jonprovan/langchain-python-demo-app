@@ -7,6 +7,7 @@ this module's only job is wiring up run IDs and turning them into a public
 
 import uuid
 
+from langchain_core.tracers.langchain import wait_for_all_tracers
 from langsmith import Client
 
 
@@ -23,6 +24,12 @@ def run_with_trace_link(graph, inputs):
     result = graph.invoke(
         inputs, config={"run_id": run_id, "run_name": "rag-query"}
     )
+
+    # LangChain posts run traces to LangSmith asynchronously via a
+    # background thread, so the run may not exist server-side yet the
+    # instant graph.invoke() returns. Block until that queue drains before
+    # asking LangSmith to share a run it might not have received.
+    wait_for_all_tracers()
 
     trace_url = None
     try:
