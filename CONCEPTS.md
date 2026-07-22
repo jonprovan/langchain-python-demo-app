@@ -2,7 +2,6 @@
 
 This is a plain-language cheat sheet for the three LangChain-ecosystem
 pieces this app demonstrates, and exactly where each one lives in the code.
-Not tracked in git — it's just for your own reference.
 
 A one-line mental model for all three, using a factory analogy:
 

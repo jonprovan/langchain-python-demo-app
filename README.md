@@ -8,6 +8,10 @@ Presenting this to a class? See [WALKTHROUGH.md](WALKTHROUGH.md) for a
 facilitator's script (code tour, live demo steps, discussion prompts, and
 troubleshooting).
 
+New to LCEL, LangGraph, or LangSmith? See [CONCEPTS.md](CONCEPTS.md) for a
+plain-language explainer of what each one does in this app, with exact
+file/line pointers into the code.
+
 ## What this demonstrates
 
 - **LCEL** (`prompt | model | parser`) inside each graph node -- the small,
