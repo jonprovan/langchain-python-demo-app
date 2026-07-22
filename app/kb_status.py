@@ -1,9 +1,8 @@
-"""Knowledge Base readiness check.
-
-Shared by the chat blueprint (to warn/block questions while the index isn't
-safely queryable yet) and available for the documents blueprint if it needs
-a general status check beyond polling one specific job by ID.
-"""
+# Knowledge Base readiness check.
+#
+# Shared by the chat blueprint (to warn/block questions while the index isn't
+# safely queryable yet) and available for the documents blueprint if it needs
+# a general status check beyond polling one specific job by ID.
 
 import datetime
 
@@ -25,17 +24,16 @@ def _seconds_since(timestamp):
     return (datetime.datetime.now(datetime.timezone.utc) - timestamp).total_seconds()
 
 
+# Return False if the most recently started ingestion job is still
+# running, or completed too recently for OpenSearch to have caught up,
+# True otherwise (including when no ingestion job has ever run).
+#
+# Both cases matter: asking a question while a job is STARTING/
+# IN_PROGRESS would search a stale index outright, and asking right after
+# one reports COMPLETE can still miss the change because Bedrock
+# reporting the job done doesn't mean OpenSearch Serverless has finished
+# indexing it yet.
 def kb_is_ready():
-    """Return False if the most recently started ingestion job is still
-    running, or completed too recently for OpenSearch to have caught up,
-    True otherwise (including when no ingestion job has ever run).
-
-    Both cases matter: asking a question while a job is STARTING/
-    IN_PROGRESS would search a stale index outright, and asking right after
-    one reports COMPLETE can still miss the change because Bedrock
-    reporting the job done doesn't mean OpenSearch Serverless has finished
-    indexing it yet.
-    """
     bedrock_agent = get_bedrock_agent_client()
     response = bedrock_agent.list_ingestion_jobs(
         knowledgeBaseId=Config.KNOWLEDGE_BASE_ID,

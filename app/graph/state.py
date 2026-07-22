@@ -1,15 +1,13 @@
-"""Shared state definition for the Corrective RAG LangGraph graph."""
+# Shared state definition for the Corrective RAG LangGraph graph.
 
 from typing import TypedDict
 
 
+# The single object passed between every node in the graph. Each node
+# reads whatever fields it needs and returns a dict of the fields it wants
+# to update -- LangGraph merges that into this state before calling the
+# next node.
 class GraphState(TypedDict):
-    """The single object passed between every node in the graph. Each node
-    reads whatever fields it needs and returns a dict of the fields it wants
-    to update -- LangGraph merges that into this state before calling the
-    next node.
-    """
-
     # Current retrieval query. Starts equal to original_question, but
     # rewrite_query can replace it on a retry loop iteration.
     question: str

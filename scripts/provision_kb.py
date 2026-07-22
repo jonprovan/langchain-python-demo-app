@@ -1,22 +1,21 @@
 #!/usr/bin/env python
-"""One-time infrastructure provisioning for the Bedrock Knowledge Base.
-
-Creates an S3 bucket, an OpenSearch Serverless VECTORSEARCH collection +
-vector index, an IAM role for Bedrock, a Knowledge Base, and an S3 data
-source, then kicks off the first ingestion job.
-
-This script is NEVER run automatically by the Flask app -- it costs real
-money (see the warning printed below) and creates real AWS resources, so a
-human has to opt in explicitly with their own credentials.
-
-Usage:
-    python scripts/provision_kb.py --yes          # provision everything
-    python scripts/provision_kb.py --teardown --yes   # delete everything
-
-Every "create_*" function checks whether its resource already exists before
-creating it, so re-running the script after a partial failure just picks up
-where it left off instead of erroring on duplicates.
-"""
+# One-time infrastructure provisioning for the Bedrock Knowledge Base.
+#
+# Creates an S3 bucket, an OpenSearch Serverless VECTORSEARCH collection +
+# vector index, an IAM role for Bedrock, a Knowledge Base, and an S3 data
+# source, then kicks off the first ingestion job.
+#
+# This script is NEVER run automatically by the Flask app -- it costs real
+# money (see the warning printed below) and creates real AWS resources, so a
+# human has to opt in explicitly with their own credentials.
+#
+# Usage:
+#     python scripts/provision_kb.py --yes          # provision everything
+#     python scripts/provision_kb.py --teardown --yes   # delete everything
+#
+# Every "create_*" function checks whether its resource already exists before
+# creating it, so re-running the script after a partial failure just picks up
+# where it left off instead of erroring on duplicates.
 
 import argparse
 import json
@@ -60,11 +59,16 @@ This is NOT reversible cost-wise once OCUs start accruing for the billing
 period. Use --teardown when you're done with the demo to remove it.
 """
 
+# Shown in `--help` output. Kept as a plain string (rather than reading the
+# module docstring via __doc__) since this file uses # comments instead of
+# docstrings.
+CLI_DESCRIPTION = "Provision (or tear down) the Bedrock Knowledge Base infrastructure for this app."
 
+
+# Build every boto3/opensearch-py client this script needs, all via
+# the caller's own default IAM credential chain (profile/SSO/role) -- no
+# separate credentials are created or required.
 def _clients(region):
-    """Build every boto3/opensearch-py client this script needs, all via
-    the caller's own default IAM credential chain (profile/SSO/role) -- no
-    separate credentials are created or required."""
     session = boto3.Session(region_name=region)
     return {
         "s3": session.client("s3"),
@@ -76,16 +80,16 @@ def _clients(region):
     }
 
 
+# Look up the caller's AWS account ID, used to build a globally-unique
+# bucket name and to scope the IAM trust policy's SourceAccount condition.
 def _account_id(clients):
-    """Look up the caller's AWS account ID, used to build a globally-unique
-    bucket name and to scope the IAM trust policy's SourceAccount condition."""
     return clients["sts"].get_caller_identity()["Account"]
 
 
+# Step 1: create the S3 bucket used as the Knowledge Base's data
+# source, with public access blocked. No-ops if the bucket already exists
+# and is owned by this account.
 def create_bucket(clients, bucket_name, region):
-    """Step 1: create the S3 bucket used as the Knowledge Base's data
-    source, with public access blocked. No-ops if the bucket already exists
-    and is owned by this account."""
     s3 = clients["s3"]
     try:
         s3.head_bucket(Bucket=bucket_name)
@@ -113,10 +117,10 @@ def create_bucket(clients, bucket_name, region):
     )
 
 
+# Return True if an OpenSearch Serverless security policy with this
+# name/type already exists (used to make create_security_policies
+# idempotent).
 def _policy_exists(aoss, name, policy_type):
-    """Return True if an OpenSearch Serverless security policy with this
-    name/type already exists (used to make create_security_policies
-    idempotent)."""
     try:
         aoss.get_security_policy(name=name, type=policy_type)
         return True
@@ -124,13 +128,12 @@ def _policy_exists(aoss, name, policy_type):
         return False
 
 
+# Step 2: create the OpenSearch Serverless encryption and network
+# security policies for the collection.
+#
+# The network policy uses public network access for demo simplicity --
+# a deliberate non-production simplification, called out in the README.
 def create_security_policies(clients, collection_name):
-    """Step 2: create the OpenSearch Serverless encryption and network
-    security policies for the collection.
-
-    The network policy uses public network access for demo simplicity --
-    a deliberate non-production simplification, called out in the README.
-    """
     aoss = clients["aoss"]
 
     encryption_name = f"{collection_name}-enc"
@@ -173,16 +176,15 @@ def create_security_policies(clients, collection_name):
         print("[2/9] Network security policy already exists, skipping.")
 
 
+# Step 3: create the OpenSearch Serverless *data access* policy.
+#
+# This is the step most commonly missed: IAM permissions alone do NOT
+# grant AOSS data-plane access. Both the caller's own IAM principal (so
+# this script can create the vector index in step 6) and the Bedrock KB
+# service role (so retrieval/ingestion work) need explicit grants here.
+# The role ARN is deterministic from account + name, so we can reference
+# it before create_iam_role actually creates the role.
 def create_access_policy(clients, collection_name, account_id, region, role_name):
-    """Step 3: create the OpenSearch Serverless *data access* policy.
-
-    This is the step most commonly missed: IAM permissions alone do NOT
-    grant AOSS data-plane access. Both the caller's own IAM principal (so
-    this script can create the vector index in step 6) and the Bedrock KB
-    service role (so retrieval/ingestion work) need explicit grants here.
-    The role ARN is deterministic from account + name, so we can reference
-    it before create_iam_role actually creates the role.
-    """
     aoss = clients["aoss"]
     sts = clients["sts"]
     caller_arn = sts.get_caller_identity()["Arn"]
@@ -229,9 +231,9 @@ def create_access_policy(clients, collection_name, account_id, region, role_name
     )
 
 
+# Step 4: create the VECTORSEARCH collection and poll until it's
+# ACTIVE. Returns (collection_id, collection_arn).
 def create_collection(clients, collection_name):
-    """Step 4: create the VECTORSEARCH collection and poll until it's
-    ACTIVE. Returns (collection_id, collection_arn)."""
     aoss = clients["aoss"]
 
     existing = aoss.list_collections(collectionFilters={"name": collection_name})["collectionSummaries"]
@@ -253,12 +255,12 @@ def create_collection(clients, collection_name):
         time.sleep(10)
 
 
+# Step 5: create the IAM role Bedrock assumes to read S3, call the
+# embedding model, and read/write the OpenSearch collection. Trust policy
+# is scoped to this account/region's Knowledge Base ARNs via
+# SourceAccount/SourceArn, per AWS's documented confused-deputy
+# mitigation.
 def create_iam_role(clients, role_name, account_id, region, bucket_name, collection_arn):
-    """Step 5: create the IAM role Bedrock assumes to read S3, call the
-    embedding model, and read/write the OpenSearch collection. Trust policy
-    is scoped to this account/region's Knowledge Base ARNs via
-    SourceAccount/SourceArn, per AWS's documented confused-deputy
-    mitigation."""
     iam = clients["iam"]
 
     trust_policy = {
@@ -316,11 +318,11 @@ def create_iam_role(clients, role_name, account_id, region, bucket_name, collect
     return role_arn
 
 
+# Step 6: create the OpenSearch *data-plane* vector index via
+# opensearch-py, signed with the "aoss" service name (not "es" -- that's
+# the #1 cause of signature errors here). Must exist before
+# create_knowledge_base.
 def create_vector_index(clients, collection_id, region):
-    """Step 6: create the OpenSearch *data-plane* vector index via
-    opensearch-py, signed with the "aoss" service name (not "es" -- that's
-    the #1 cause of signature errors here). Must exist before
-    create_knowledge_base."""
     credentials = clients["session"].get_credentials()
     auth = AWSV4SignerAuth(credentials, region, "aoss")
     host = f"{collection_id}.{region}.aoss.amazonaws.com"
@@ -375,9 +377,9 @@ def create_vector_index(clients, collection_id, region):
     time.sleep(60)
 
 
+# Step 7: create the Bedrock Knowledge Base backed by the OpenSearch
+# Serverless index, and poll until ACTIVE. Returns the knowledge_base_id.
 def create_knowledge_base(clients, role_arn, collection_arn, region):
-    """Step 7: create the Bedrock Knowledge Base backed by the OpenSearch
-    Serverless index, and poll until ACTIVE. Returns the knowledge_base_id."""
     bedrock_agent = clients["bedrock_agent"]
 
     existing = [
@@ -446,10 +448,10 @@ def create_knowledge_base(clients, role_arn, collection_arn, region):
         time.sleep(10)
 
 
+# Step 8: attach the S3 bucket as the Knowledge Base's data source,
+# using Bedrock's default FIXED_SIZE chunking (fine for a demo). Returns
+# the data_source_id.
 def create_data_source(clients, kb_id, bucket_name):
-    """Step 8: attach the S3 bucket as the Knowledge Base's data source,
-    using Bedrock's default FIXED_SIZE chunking (fine for a demo). Returns
-    the data_source_id."""
     bedrock_agent = clients["bedrock_agent"]
 
     existing = [
@@ -478,10 +480,10 @@ def create_data_source(clients, kb_id, bucket_name):
     return response["dataSource"]["dataSourceId"]
 
 
+# Step 9: start an ingestion job over whatever's currently in the S3
+# bucket and poll until it reaches COMPLETE. Safe to call with an empty
+# bucket -- it just completes immediately with zero documents indexed.
 def start_ingestion_job(clients, kb_id, data_source_id):
-    """Step 9: start an ingestion job over whatever's currently in the S3
-    bucket and poll until it reaches COMPLETE. Safe to call with an empty
-    bucket -- it just completes immediately with zero documents indexed."""
     bedrock_agent = clients["bedrock_agent"]
 
     print("[9/9] Starting ingestion job...")
@@ -500,10 +502,10 @@ def start_ingestion_job(clients, kb_id, data_source_id):
         time.sleep(5)
 
 
+# Run all nine provisioning steps in order and print the .env values
+# the Flask app needs. Requires interactive or --yes confirmation of the
+# cost warning before the billable collection is created (step 4).
 def provision(region):
-    """Run all nine provisioning steps in order and print the .env values
-    the Flask app needs. Requires interactive or --yes confirmation of the
-    cost warning before the billable collection is created (step 4)."""
     clients = _clients(region)
     account_id = _account_id(clients)
     bucket_name = BUCKET_NAME_TEMPLATE.format(prefix=NAME_PREFIX, account_id=account_id)
@@ -524,10 +526,10 @@ def provision(region):
     print(f"KB_DATA_BUCKET={bucket_name}")
 
 
+# Reverse every step of provision(), in reverse order, so the demo
+# stack (and its cost) can be fully removed. Each delete call swallows
+# "already gone" errors so teardown is safe to re-run.
 def teardown(region):
-    """Reverse every step of provision(), in reverse order, so the demo
-    stack (and its cost) can be fully removed. Each delete call swallows
-    "already gone" errors so teardown is safe to re-run."""
     clients = _clients(region)
     account_id = _account_id(clients)
     bucket_name = BUCKET_NAME_TEMPLATE.format(prefix=NAME_PREFIX, account_id=account_id)
@@ -587,7 +589,7 @@ def teardown(region):
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(description=CLI_DESCRIPTION)
     parser.add_argument("--region", default="us-east-1", help="AWS region to provision in.")
     parser.add_argument("--teardown", action="store_true", help="Delete all resources instead of creating them.")
     parser.add_argument("--yes", action="store_true", help="Skip the interactive confirmation prompt.")

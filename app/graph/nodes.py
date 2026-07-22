@@ -1,11 +1,10 @@
-"""Node functions for the Corrective RAG graph.
-
-Each node is a plain function of (state) -> partial state update, which is
-the contract LangGraph expects. Inside each node we build a small LCEL chain
-(prompt | model | parser) -- this is the "LCEL and LangGraph are separate,
-composable layers" teaching point from the plan: LangGraph owns the control
-flow (the retry loop), LCEL owns each individual model call.
-"""
+# Node functions for the Corrective RAG graph.
+#
+# Each node is a plain function of (state) -> partial state update, which is
+# the contract LangGraph expects. Inside each node we build a small LCEL chain
+# (prompt | model | parser) -- this is the "LCEL and LangGraph are separate,
+# composable layers" teaching point from the plan: LangGraph owns the control
+# flow (the retry loop), LCEL owns each individual model call.
 
 from langchain_aws import AmazonKnowledgeBasesRetriever, ChatBedrockConverse
 from langchain_core.output_parsers import StrOutputParser
@@ -20,11 +19,11 @@ from app.config import Config
 MAX_REWRITES = 2
 
 
+# Build the ChatBedrockConverse instance shared by grading, rewriting,
+# and generation. A fresh instance per call keeps nodes independent and
+# easy to read in training material, at the cost of a small amount of
+# duplicate client setup.
 def _chat_model():
-    """Build the ChatBedrockConverse instance shared by grading, rewriting,
-    and generation. A fresh instance per call keeps nodes independent and
-    easy to read in training material, at the cost of a small amount of
-    duplicate client setup."""
     return ChatBedrockConverse(
         model=Config.BEDROCK_MODEL_ID,
         client=get_bedrock_runtime_client(),
@@ -32,12 +31,12 @@ def _chat_model():
     )
 
 
+# Fetch chunks from the Bedrock Knowledge Base for the current
+# `question`. Uses AmazonKnowledgeBasesRetriever from langchain_aws (not
+# the deprecated langchain_community version) with an explicit
+# bedrock-agent-runtime client so it shares the same IAM credential chain
+# as every other AWS call in the app.
 def retrieve(state):
-    """Fetch chunks from the Bedrock Knowledge Base for the current
-    `question`. Uses AmazonKnowledgeBasesRetriever from langchain_aws (not
-    the deprecated langchain_community version) with an explicit
-    bedrock-agent-runtime client so it shares the same IAM credential chain
-    as every other AWS call in the app."""
     retriever = AmazonKnowledgeBasesRetriever(
         knowledge_base_id=Config.KNOWLEDGE_BASE_ID,
         region_name=Config.AWS_REGION,
@@ -48,12 +47,12 @@ def retrieve(state):
     return {"documents": documents}
 
 
+# Ask the chat model whether the retrieved documents actually answer
+# the original question. This is the "corrective" step in Corrective RAG:
+# instead of blindly generating from whatever was retrieved, we gate on
+# relevance first so a bad retrieval can trigger a query rewrite instead
+# of a confidently wrong answer.
 def grade_documents(state):
-    """Ask the chat model whether the retrieved documents actually answer
-    the original question. This is the "corrective" step in Corrective RAG:
-    instead of blindly generating from whatever was retrieved, we gate on
-    relevance first so a bad retrieval can trigger a query rewrite instead
-    of a confidently wrong answer."""
     prompt = ChatPromptTemplate.from_messages(
         [
             (
@@ -79,11 +78,11 @@ def grade_documents(state):
     return {"grade": grade}
 
 
+# Ask the chat model to rewrite the retrieval query when
+# grade_documents() found the last retrieval irrelevant. Increments
+# rewrite_count so the conditional edge in build.py can enforce
+# MAX_REWRITES and guarantee the graph terminates.
 def rewrite_query(state):
-    """Ask the chat model to rewrite the retrieval query when
-    grade_documents() found the last retrieval irrelevant. Increments
-    rewrite_count so the conditional edge in build.py can enforce
-    MAX_REWRITES and guarantee the graph terminates."""
     prompt = ChatPromptTemplate.from_messages(
         [
             (
@@ -104,13 +103,12 @@ def rewrite_query(state):
     }
 
 
+# Produce the final answer from the original question and whatever
+# documents are currently in state, and extract citation metadata for the
+# UI. Called either after a relevant grade, or after MAX_REWRITES is
+# reached -- in the latter case the prompt is told to hedge, so the app
+# never presents a low-confidence answer as if retrieval fully backed it.
 def generate(state):
-    """Produce the final answer from the original question and whatever
-    documents are currently in state, and extract citation metadata for the
-    UI. Called either after a relevant grade, or after MAX_REWRITES is
-    reached -- in the latter case the prompt is told to hedge, so the app
-    never presents a low-confidence answer as if retrieval fully backed it.
-    """
     low_confidence = state["grade"] == "irrelevant" and state["rewrite_count"] >= MAX_REWRITES
 
     system_message = (
@@ -141,11 +139,11 @@ def generate(state):
     return {"answer": answer, "citations": citations}
 
 
+# Conditional-edge function consumed by add_conditional_edges() in
+# build.py. Returns the name of the next node: "generate" once documents
+# are relevant (or the retry budget is exhausted), otherwise
+# "rewrite_query" to try again.
 def route_after_grading(state):
-    """Conditional-edge function consumed by add_conditional_edges() in
-    build.py. Returns the name of the next node: "generate" once documents
-    are relevant (or the retry budget is exhausted), otherwise
-    "rewrite_query" to try again."""
     if state["grade"] == "relevant":
         return "generate"
     if state["rewrite_count"] >= MAX_REWRITES:

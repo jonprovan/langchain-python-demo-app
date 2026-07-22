@@ -1,1 +1,1 @@
-"""Document upload and Knowledge Base ingestion blueprint."""
+# Document upload and Knowledge Base ingestion blueprint.

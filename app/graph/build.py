@@ -1,9 +1,8 @@
-"""Wires the Corrective RAG nodes into a compiled LangGraph graph.
-
-Flow: retrieve -> grade_documents -> (generate | rewrite_query -> retrieve),
-looping until relevant or MAX_REWRITES is hit, then always ending at
-generate -> END.
-"""
+# Wires the Corrective RAG nodes into a compiled LangGraph graph.
+#
+# Flow: retrieve -> grade_documents -> (generate | rewrite_query -> retrieve),
+# looping until relevant or MAX_REWRITES is hit, then always ending at
+# generate -> END.
 
 from langgraph.graph import END, START, StateGraph
 
@@ -13,10 +12,10 @@ from app.graph.state import GraphState
 _compiled_graph = None
 
 
+# Assemble and compile the StateGraph from the node functions in
+# nodes.py. Kept separate from get_graph() so tests/scripts can build a
+# fresh, uncached graph if needed (e.g. before calling draw_mermaid_png()).
 def build_graph():
-    """Assemble and compile the StateGraph from the node functions in
-    nodes.py. Kept separate from get_graph() so tests/scripts can build a
-    fresh, uncached graph if needed (e.g. before calling draw_mermaid_png())."""
     graph = StateGraph(GraphState)
 
     graph.add_node("retrieve", retrieve)
@@ -37,11 +36,11 @@ def build_graph():
     return graph.compile()
 
 
+# Return a process-wide singleton compiled graph, building it on first
+# call. Compiling is cheap but there's no reason to redo it on every
+# request, so routes.py should always go through this function rather
+# than calling build_graph() directly.
 def get_graph():
-    """Return a process-wide singleton compiled graph, building it on first
-    call. Compiling is cheap but there's no reason to redo it on every
-    request, so routes.py should always go through this function rather
-    than calling build_graph() directly."""
     global _compiled_graph
     if _compiled_graph is None:
         _compiled_graph = build_graph()

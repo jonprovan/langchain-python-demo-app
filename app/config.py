@@ -1,16 +1,14 @@
-"""Central place for reading environment configuration used across the app."""
+# Central place for reading environment configuration used across the app.
 
 import os
 
 
+# Typed accessor for the environment variables the app depends on.
+#
+# Values are read from process environment (populated by python-dotenv from
+# .env in development). Grouped in one class so every other module has a
+# single import instead of scattering os.environ calls everywhere.
 class Config:
-    """Typed accessor for the environment variables the app depends on.
-
-    Values are read from process environment (populated by python-dotenv from
-    .env in development). Grouped in one class so every other module has a
-    single import instead of scattering os.environ calls everywhere.
-    """
-
     AWS_REGION = os.environ.get("AWS_REGION", "us-east-1")
 
     # Bedrock model used for generation, document grading, and query rewriting
@@ -33,10 +31,10 @@ class Config:
 
     SECRET_KEY = os.environ.get("FLASK_SECRET_KEY", "dev-secret-change-me")
 
+    # Return True once the Knowledge Base has been provisioned and its
+    # IDs are present in the environment. Routes use this to show a helpful
+    # setup message instead of a raw Bedrock error when the KB isn't ready
+    # yet.
     @classmethod
     def kb_configured(cls):
-        """Return True once the Knowledge Base has been provisioned and its
-        IDs are present in the environment. Routes use this to show a helpful
-        setup message instead of a raw Bedrock error when the KB isn't ready
-        yet."""
         return bool(cls.KNOWLEDGE_BASE_ID and cls.DATA_SOURCE_ID and cls.KB_DATA_BUCKET)
