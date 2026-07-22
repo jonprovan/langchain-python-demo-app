@@ -131,6 +131,12 @@ Switch to the running app (`flask --app wsgi run`) in a browser.
    indexing this into the OpenSearch Serverless vector store right now —
    we didn't write any of that logic, it's fully managed."
 4. Wait for the page to report ingestion complete (usually under a minute).
+   If you (or a trainee) jump to the Chat page early, `app/kb_status.py`
+   checks the most recent ingestion job's status and blocks the question
+   with a clear "still being ingested" message instead of silently
+   answering against a stale index — worth pointing out as a real
+   async-consistency issue this app had to account for, not just a Flask
+   nicety.
 
 ### 3b. Ask the question only this document can answer
 

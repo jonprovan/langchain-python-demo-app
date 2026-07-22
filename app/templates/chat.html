@@ -9,6 +9,14 @@
     <code>KB_DATA_BUCKET</code> in <code>.env</code> before chatting.
   </p>
 {% else %}
+  {% if ingesting %}
+    <p class="warning">
+      A document is still being ingested. Questions asked right now won't
+      be able to find it -- wait for the Upload page to report ingestion
+      complete, then come back here.
+    </p>
+  {% endif %}
+
   <form id="chat-form">
     <input type="text" name="question" id="question-input" placeholder="Ask about an uploaded document..." required>
     <button type="submit">Ask</button>
