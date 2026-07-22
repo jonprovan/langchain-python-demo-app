@@ -224,17 +224,20 @@ null, this app already guards against the other known cause (the
 `wait_for_all_tracers()` race described in section 2e), so check the
 Flask server's console output for a stack trace.
 
-**A deleted document is still answerable, or a just-uploaded one still
-comes back "not found" for a few extra seconds after ingestion reports
-`COMPLETE`.** A Bedrock Knowledge Base with an S3 data source doesn't watch
-the bucket in real time — additions and deletions only take effect on the
-*next* ingestion job, which is why deleting from the Upload page (not just
-the S3 console) matters: it deletes the object *and* re-triggers ingestion
-so the removal actually propagates (`app/documents/routes.py`,
+**A deleted document was still answerable, or a just-uploaded one still
+came back "not found" right after ingestion reported `COMPLETE`.** A
+Bedrock Knowledge Base with an S3 data source doesn't watch the bucket in
+real time — additions and deletions only take effect on the *next*
+ingestion job, which is why deleting from the Upload page (not the S3
+console) matters: it deletes the object *and* re-triggers ingestion so the
+removal actually propagates (`app/documents/routes.py`,
 `_start_ingestion_job` / `delete_document`). Separately, even a `COMPLETE`
 ingestion job doesn't guarantee the change is *instantly* searchable —
 OpenSearch Serverless has a short near-real-time indexing delay (seen
-during testing: a few seconds to under a minute) with no separate status
-to poll for it. If a demo answer looks stale right after an upload or
-delete, this is almost always why — wait a few seconds and ask again
-before assuming something's broken.
+during testing: anywhere from a few seconds up to ~45s). `app/kb_status.py`
+now accounts for both: `kb_is_ready()` checks the job status *and* requires
+45s to have passed since the job's reported completion time before
+`/chat/ask` will run, so this should show up as a clear "still indexing a
+recent change" message rather than a silently wrong/stale answer. If you
+ever see it slip through anyway, that's a sign `SETTLE_SECONDS` needs to be
+higher for that AWS account/region.
