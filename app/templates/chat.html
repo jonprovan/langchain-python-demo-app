@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Ask a question</h1>
+
+{% if not kb_configured %}
+  <p class="warning">
+    Knowledge Base is not configured yet. Run <code>scripts/provision_kb.py</code>
+    and set <code>KNOWLEDGE_BASE_ID</code>, <code>DATA_SOURCE_ID</code>, and
+    <code>KB_DATA_BUCKET</code> in <code>.env</code> before chatting.
+  </p>
+{% else %}
+  <form id="chat-form">
+    <input type="text" name="question" id="question-input" placeholder="Ask about an uploaded document..." required>
+    <button type="submit">Ask</button>
+  </form>
+
+  <div id="chat-result" class="hidden">
+    <h2>Answer</h2>
+    <p id="answer-text"></p>
+
+    <h3>Citations</h3>
+    <ul id="citations-list"></ul>
+
+    <p id="trace-link"></p>
+  </div>
+{% endif %}
+
+<script src="{{ url_for('static', filename='js/chat.js') }}"></script>
+{% endblock %}

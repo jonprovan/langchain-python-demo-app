@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>Upload a document</h1>
+
+{% if not kb_configured %}
+  <p class="warning">
+    Knowledge Base is not configured yet. Run <code>scripts/provision_kb.py</code>
+    and set <code>KNOWLEDGE_BASE_ID</code>, <code>DATA_SOURCE_ID</code>, and
+    <code>KB_DATA_BUCKET</code> in <code>.env</code> before uploading.
+  </p>
+{% else %}
+  <p>Upload a text file to the Knowledge Base's S3 data source. Bedrock will
+  chunk, embed, and index it, then you can ask questions about it on the
+  Chat page.</p>
+
+  <form id="upload-form">
+    <input type="file" name="file" id="file-input" required>
+    <button type="submit">Upload</button>
+  </form>
+
+  <p id="upload-status"></p>
+{% endif %}
+
+<script src="{{ url_for('static', filename='js/chat.js') }}"></script>
+{% endblock %}

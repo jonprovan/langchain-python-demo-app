@@ -1,0 +1,51 @@
+"""Routes for the chat page: runs a question through the Corrective RAG
+graph and returns the answer, citations, and a LangSmith trace link."""
+
+from flask import Blueprint, jsonify, render_template, request
+
+from app.config import Config
+from app.graph.build import get_graph
+from app.langsmith_utils import run_with_trace_link
+
+chat_bp = Blueprint("chat", __name__)
+
+
+@chat_bp.route("/", methods=["GET"])
+def chat_page():
+    """Render the chat page. Shows a setup warning instead of the chat box
+    if the Knowledge Base hasn't been provisioned yet."""
+    return render_template("chat.html", kb_configured=Config.kb_configured())
+
+
+@chat_bp.route("/ask", methods=["POST"])
+def ask():
+    """Run the user's question through the compiled Corrective RAG graph
+    and return the answer, citations, and trace link as JSON for the page's
+    fetch() call to render."""
+    if not Config.kb_configured():
+        return jsonify({"error": "Knowledge Base is not configured. Run scripts/provision_kb.py first."}), 400
+
+    question = request.json.get("question", "").strip()
+    if not question:
+        return jsonify({"error": "Question cannot be empty."}), 400
+
+    graph = get_graph()
+    inputs = {
+        "question": question,
+        "original_question": question,
+        "documents": [],
+        "grade": "",
+        "rewrite_count": 0,
+        "answer": "",
+        "citations": [],
+    }
+    result, trace_url = run_with_trace_link(graph, inputs)
+
+    return jsonify(
+        {
+            "answer": result["answer"],
+            "citations": result["citations"],
+            "trace_url": trace_url,
+            "rewrite_count": result["rewrite_count"],
+        }
+    )
