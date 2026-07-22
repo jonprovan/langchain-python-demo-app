@@ -1,0 +1,5 @@
+Internal Policy Reference Document
+
+The SkillStorm training lab access policy number is TRN-88421-Q.
+This policy number grants temporary sandbox AWS account access for
+students enrolled in the Cloud AI Bootcamp cohort.

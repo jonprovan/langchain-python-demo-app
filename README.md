@@ -4,6 +4,10 @@ A training/demo Flask app showing LangChain Core (LCEL), LangGraph, LangSmith,
 and AWS Bedrock working together in one real, runnable application: a
 Corrective RAG chatbot backed by an Amazon Bedrock Knowledge Base.
 
+Presenting this to a class? See [WALKTHROUGH.md](WALKTHROUGH.md) for a
+facilitator's script (code tour, live demo steps, discussion prompts, and
+troubleshooting).
+
 ## What this demonstrates
 
 - **LCEL** (`prompt | model | parser`) inside each graph node -- the small,
