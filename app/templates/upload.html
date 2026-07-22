@@ -19,6 +19,20 @@
   </form>
 
   <p id="upload-status"></p>
+
+  <h2>Documents in the Knowledge Base</h2>
+  {% if documents %}
+    <ul id="documents-list">
+      {% for filename in documents %}
+        <li data-filename="{{ filename }}">
+          {{ filename }}
+          <button class="delete-document" data-filename="{{ filename }}">Delete</button>
+        </li>
+      {% endfor %}
+    </ul>
+  {% else %}
+    <p>No documents uploaded yet.</p>
+  {% endif %}
 {% endif %}
 
 <script src="{{ url_for('static', filename='js/chat.js') }}"></script>

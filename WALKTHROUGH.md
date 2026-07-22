@@ -223,3 +223,18 @@ without a valid key, LangChain's background trace uploads fail with a
 null, this app already guards against the other known cause (the
 `wait_for_all_tracers()` race described in section 2e), so check the
 Flask server's console output for a stack trace.
+
+**A deleted document is still answerable, or a just-uploaded one still
+comes back "not found" for a few extra seconds after ingestion reports
+`COMPLETE`.** A Bedrock Knowledge Base with an S3 data source doesn't watch
+the bucket in real time — additions and deletions only take effect on the
+*next* ingestion job, which is why deleting from the Upload page (not just
+the S3 console) matters: it deletes the object *and* re-triggers ingestion
+so the removal actually propagates (`app/documents/routes.py`,
+`_start_ingestion_job` / `delete_document`). Separately, even a `COMPLETE`
+ingestion job doesn't guarantee the change is *instantly* searchable —
+OpenSearch Serverless has a short near-real-time indexing delay (seen
+during testing: a few seconds to under a minute) with no separate status
+to poll for it. If a demo answer looks stale right after an upload or
+delete, this is almost always why — wait a few seconds and ask again
+before assuming something's broken.

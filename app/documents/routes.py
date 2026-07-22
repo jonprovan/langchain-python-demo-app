@@ -9,13 +9,37 @@ from app.config import Config
 documents_bp = Blueprint("documents", __name__)
 
 
+def _start_ingestion_job():
+    """Kick off an asynchronous ingestion (sync) job and return its ID.
+
+    A Bedrock Knowledge Base with an S3 data source doesn't watch the
+    bucket in real time -- it only picks up additions *and* deletions the
+    next time an ingestion job runs. Both do_upload() and delete_document()
+    call this so the vector index actually reflects the current contents
+    of the bucket instead of drifting from it.
+    """
+    bedrock_agent = get_bedrock_agent_client()
+    response = bedrock_agent.start_ingestion_job(
+        knowledgeBaseId=Config.KNOWLEDGE_BASE_ID,
+        dataSourceId=Config.DATA_SOURCE_ID,
+    )
+    return response["ingestionJob"]["ingestionJobId"]
+
+
 @documents_bp.route("/upload", methods=["GET"])
 def upload():
-    """Render the upload page. Shows a setup warning instead of the form if
-    the Knowledge Base hasn't been provisioned yet (see
-    scripts/provision_kb.py), since uploading would just fail with a
+    """Render the upload page: the upload form, plus a list of documents
+    already in the data source bucket so they can be deleted. Shows a setup
+    warning instead if the Knowledge Base hasn't been provisioned yet (see
+    scripts/provision_kb.py), since upload/list would just fail with a
     confusing boto3 error otherwise."""
-    return render_template("upload.html", kb_configured=Config.kb_configured())
+    kb_configured = Config.kb_configured()
+    documents = []
+    if kb_configured:
+        s3 = get_s3_client()
+        response = s3.list_objects_v2(Bucket=Config.KB_DATA_BUCKET)
+        documents = sorted(obj["Key"] for obj in response.get("Contents", []))
+    return render_template("upload.html", kb_configured=kb_configured, documents=documents)
 
 
 @documents_bp.route("/upload", methods=["POST"])
@@ -37,12 +61,25 @@ def do_upload():
     s3 = get_s3_client()
     s3.put_object(Bucket=Config.KB_DATA_BUCKET, Key=filename, Body=uploaded_file.read())
 
-    bedrock_agent = get_bedrock_agent_client()
-    response = bedrock_agent.start_ingestion_job(
-        knowledgeBaseId=Config.KNOWLEDGE_BASE_ID,
-        dataSourceId=Config.DATA_SOURCE_ID,
-    )
-    job_id = response["ingestionJob"]["ingestionJobId"]
+    job_id = _start_ingestion_job()
+
+    return jsonify({"filename": filename, "ingestion_job_id": job_id})
+
+
+@documents_bp.route("/files/<path:filename>", methods=["DELETE"])
+def delete_document(filename):
+    """Delete a document from the data source bucket and re-trigger
+    ingestion so the Knowledge Base actually drops the corresponding
+    vectors. Deleting the S3 object alone leaves old chunks searchable
+    (and therefore still answerable) until a new ingestion job runs and
+    the sync notices the object is gone."""
+    if not Config.kb_configured():
+        return jsonify({"error": "Knowledge Base is not configured. Run scripts/provision_kb.py first."}), 400
+
+    s3 = get_s3_client()
+    s3.delete_object(Bucket=Config.KB_DATA_BUCKET, Key=filename)
+
+    job_id = _start_ingestion_job()
 
     return jsonify({"filename": filename, "ingestion_job_id": job_id})
 

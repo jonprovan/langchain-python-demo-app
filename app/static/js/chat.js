@@ -26,19 +26,62 @@ if (uploadForm) {
     }
 
     statusEl.textContent = `Uploaded ${uploadResult.filename}. Ingesting...`;
-    await pollIngestionStatus(uploadResult.ingestion_job_id, statusEl);
+    await pollIngestionStatus(
+      uploadResult.ingestion_job_id,
+      statusEl,
+      "Ingestion complete. You can now ask questions on the Chat page."
+    );
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    location.reload();
   });
 }
 
+// --- Upload page: delete a document, then wait for the re-sync so the
+// Knowledge Base actually drops the document's vectors. Deleting the S3
+// object alone doesn't remove it from the index until the next ingestion
+// job runs -- this mirrors the upload flow instead of leaving the
+// Knowledge Base out of sync with the bucket. ---
+document.querySelectorAll(".delete-document").forEach((button) => {
+  button.addEventListener("click", async () => {
+    const filename = button.dataset.filename;
+    const statusEl = document.getElementById("upload-status");
+
+    if (!confirm(`Delete "${filename}" and remove it from the Knowledge Base?`)) {
+      return;
+    }
+
+    statusEl.textContent = `Deleting ${filename}...`;
+    const deleteResponse = await fetch(`/documents/files/${encodeURIComponent(filename)}`, {
+      method: "DELETE",
+    });
+    const deleteResult = await deleteResponse.json();
+
+    if (!deleteResponse.ok) {
+      statusEl.textContent = `Error: ${deleteResult.error}`;
+      return;
+    }
+
+    statusEl.textContent = `Deleted ${filename}. Re-syncing index...`;
+    await pollIngestionStatus(
+      deleteResult.ingestion_job_id,
+      statusEl,
+      `${filename} removed from the Knowledge Base.`
+    );
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    location.reload();
+  });
+});
+
 // Poll the ingestion job status every 3 seconds until it leaves the
-// "in progress" states, so the user knows when the doc is searchable.
-async function pollIngestionStatus(jobId, statusEl) {
+// "in progress" states, so the user knows when the index reflects the
+// change (whether that was an upload or a delete).
+async function pollIngestionStatus(jobId, statusEl, completeMessage) {
   while (true) {
     const response = await fetch(`/documents/status/${jobId}`);
     const result = await response.json();
 
     if (result.status === "COMPLETE") {
-      statusEl.textContent = "Ingestion complete. You can now ask questions on the Chat page.";
+      statusEl.textContent = completeMessage;
       return;
     }
     if (result.status === "FAILED") {
