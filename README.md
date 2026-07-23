@@ -87,6 +87,14 @@ simplicity. A production setup would use a VPC endpoint instead.
 flask --app wsgi run
 ```
 
+Alternatively, run it as a plain Python script (uses Flask's built-in
+dev server via `app.run(debug=True)` in `wsgi.py`, defaults to
+`127.0.0.1:5000`):
+
+```
+python wsgi.py
+```
+
 Then:
 
 1. Open the **Upload** page and upload a small text file containing a fact
